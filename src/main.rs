@@ -11,6 +11,7 @@ type SerialComResult<T> = std::result::Result<T, SerialComError>;
 enum SerialComError {
     QueueTooFull,
     QueueIndexingError,
+    COBSDecodeNoCommaFound,
     TryFromInt(TryFromIntError),
 }
 
@@ -23,6 +24,9 @@ impl std::fmt::Display for SerialComError {
             SerialComError::QueueIndexingError => {
                 write!(f, "Tried to index out of bounds of queue.")
             }
+            SerialComError::COBSDecodeNoCommaFound => {
+                write!(f, "No comma (0) byte found whie decoding message.")
+            }
             SerialComError::TryFromInt(ref e) => e.fmt(f),
         }
     }
@@ -33,6 +37,7 @@ impl std::error::Error for SerialComError {
         match *self {
             SerialComError::QueueTooFull => None,
             SerialComError::QueueIndexingError => None,
+            SerialComError::COBSDecodeNoCommaFound => None,
             SerialComError::TryFromInt(ref e) => Some(e),
         }
     }
@@ -76,7 +81,7 @@ fn rand_array_deque(q: &mut arraydeque::ArrayDeque<[u8; 64], Wrapping>, n: u8) {
 ///
 /// Assumes everything in the buffer is a single unencoded message, and message is < 254 bytes long
 ///
-/// returns Result(queue size, error string);
+/// returns SerialComResult with queue size;
 ///
 fn cobs_encode(q: &mut arraydeque::ArrayDeque<[u8; 64], Wrapping>) -> SerialComResult<usize> {
     if q.is_full() {
@@ -108,19 +113,31 @@ fn cobs_encode(q: &mut arraydeque::ArrayDeque<[u8; 64], Wrapping>) -> SerialComR
 ///
 /// Leaves the trailing 0 comma character.
 ///
-fn cobs_decode(q: &mut arraydeque::ArrayDeque<[u8; 64], Wrapping>) {
+/// returns SerialComResult with size of front message on queue.
+///
+fn cobs_decode(q: &mut arraydeque::ArrayDeque<[u8; 64], Wrapping>) -> SerialComResult<usize> {
     let mut i_zero: usize = 0;
-    let i_last = q.len() - 1;
-    while i_zero < i_last {
-        let i_zero_val = q.get_mut(i_zero).expect("i_zero wasn't accessible!!!");
+    let mut comma_found = false;
+    let q_len = q.len();
+    while i_zero < q_len {
+        let i_zero_val = q
+            .get_mut(i_zero)
+            .ok_or(SerialComError::QueueIndexingError)?;
+        if *i_zero_val == 0u8 {
+            comma_found = true;
+            break;
+        }
         i_zero += usize::from(*i_zero_val);
         *i_zero_val = 0u8;
     }
+    if !comma_found {
+        return Err(SerialComError::COBSDecodeNoCommaFound);
+    };
     q.pop_front();
+    Ok(i_zero - 1)
 }
 
-fn main() /*-> Result<()>*/
-{
+fn main() -> SerialComResult<()> {
     const CAPACITY: usize = 64;
     let mut q: ArrayDeque<[u8; CAPACITY], Wrapping> = ArrayDeque::new();
     q.push_back(0x22);
@@ -155,9 +172,9 @@ fn main() /*-> Result<()>*/
     q.push_back(0xA);
     let orig_q_1 = q.clone();
     print_array_deque(&q);
-    cobs_encode(&mut q).unwrap();
+    cobs_encode(&mut q)?;
     print_array_deque(&q);
-    cobs_decode(&mut q);
+    cobs_decode(&mut q)?;
     q.pop_back();
     print_array_deque(&q);
     println!("q1 equal: {}", q == orig_q_1);
@@ -166,13 +183,14 @@ fn main() /*-> Result<()>*/
     rand_array_deque(&mut q, 32);
     let orig_q_2 = q.clone();
     print_array_deque(&q);
-    cobs_encode(&mut q).unwrap();
+    cobs_encode(&mut q)?;
     print_array_deque(&q);
-    cobs_decode(&mut q);
+    cobs_decode(&mut q)?;
     q.pop_back();
     print_array_deque(&q);
     println!("q2 equal: {}", q == orig_q_2);
-    //Ok(())
+
+    Ok(())
 }
 
 #[test]
@@ -185,7 +203,7 @@ fn test_cobs_encode_decode_back() {
         rand_array_deque(&mut q, size);
         let q_orig = q.clone();
         cobs_encode(&mut q).unwrap();
-        cobs_decode(&mut q);
+        cobs_decode(&mut q).unwrap();
         q.pop_back(); // remove comma char
         assert_eq!(q, q_orig);
     }
