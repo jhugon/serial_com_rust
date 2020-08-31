@@ -21,7 +21,7 @@ fn print_array_deque<A: arraydeque::Array, B: arraydeque::behavior::Behavior>(
 
 /// Encode data using consistent overhead byte stuffing (COBS)
 ///
-/// Assumes everything in the buffer is unencoded data, and message is < 254 bytes long
+/// Assumes everything in the buffer is a single unencoded message, and message is < 254 bytes long
 ///
 fn cobs_encode(q: &mut arraydeque::ArrayDeque<[u8; 64], Wrapping>) {
     q.push_front(0u8);
@@ -30,31 +30,30 @@ fn cobs_encode(q: &mut arraydeque::ArrayDeque<[u8; 64], Wrapping>) {
     let qlen = q.len();
     for i in 1..qlen {
         if let Some(&0) = q.get(i) {
-            match q.get_mut(i_last_zero) {
-                Some(last_zero_el) => match u8::try_from(i - i_last_zero) {
-                    Ok(last_zero_el_next) => {
-                        *last_zero_el = last_zero_el_next;
-                        i_last_zero = i;
-                    }
-                    Err(why) => panic!("{:?}", why),
-                },
-                None => panic!("i_last_zero wasn't accessible!!!"),
-            }
+            let last_zero_el = q
+                .get_mut(i_last_zero)
+                .expect("i_last_zero wasn't accessible!!!");
+            let last_zero_el_next = u8::try_from(i - i_last_zero)
+                .expect("i-i_last_zero couldn't be converted to usize");
+            *last_zero_el = last_zero_el_next;
+            i_last_zero = i;
         }
     }
 }
 
+/// Encode data using consistent overhead byte stuffing (COBS)
+///
+/// Assumes buffer starts with a message ending in a 0 as a comma character, and message is < 254 bytes long
+///
+/// Leaves the trailing 0 comma character.
+///
 fn cobs_decode(q: &mut arraydeque::ArrayDeque<[u8; 64], Wrapping>) {
     let mut i_zero: usize = 0;
     let i_last = q.len() - 1;
     while i_zero < i_last {
-        match q.get_mut(i_zero) {
-            Some(i_zero_val) => {
-                i_zero += usize::from(*i_zero_val);
-                *i_zero_val = 0u8;
-            }
-            None => panic!("i_zero wasn't accessible!!!"),
-        }
+        let i_zero_val = q.get_mut(i_zero).expect("i_zero wasn't accessible!!!");
+        i_zero += usize::from(*i_zero_val);
+        *i_zero_val = 0u8;
     }
     q.pop_front();
 }
@@ -96,5 +95,6 @@ fn main() {
     cobs_encode(&mut q);
     print_array_deque(&q);
     cobs_decode(&mut q);
+    q.pop_back();
     print_array_deque(&q);
 }
