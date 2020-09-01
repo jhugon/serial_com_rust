@@ -27,7 +27,7 @@ fn main() -> SerialComResult<()> {
         Some(val) => println!("Element 4: {}", val),
         None => println!("No element 4"),
     }
-    print_array_deque(&q);
+    q.print();
 
     q.push_back(0x0);
     q.push_back(0x22);
@@ -36,23 +36,23 @@ fn main() -> SerialComResult<()> {
     q.push_back(0x9);
     q.push_back(0xA);
     let orig_q_1 = q.clone();
-    print_array_deque(&q);
-    cobs_encode(&mut q)?;
-    print_array_deque(&q);
-    cobs_decode(&mut q)?;
+    q.print();
+    q.cobs_encode()?;
+    q.print();
+    q.cobs_decode()?;
     q.pop_back();
-    print_array_deque(&q);
+    q.print();
     println!("q1 equal: {}", q == orig_q_1);
 
     q.clear();
-    rand_array_deque(&mut q, 32);
+    q.push_back_rand(&32, &20);
     let orig_q_2 = q.clone();
-    print_array_deque(&q);
-    cobs_encode(&mut q)?;
-    print_array_deque(&q);
-    cobs_decode(&mut q)?;
+    q.print();
+    q.cobs_encode()?;
+    q.print();
+    q.cobs_decode()?;
     q.pop_back();
-    print_array_deque(&q);
+    q.print();
     println!("q2 equal: {}", q == orig_q_2);
 
     Ok(())
