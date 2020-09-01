@@ -8,6 +8,9 @@ pub enum SerialComError {
     QueueTooFull,
     QueueIndexingError,
     COBSDecodeNoCommaFound,
+    COBSTooLittleData,
+    SliceTooSmall,
+    SliceTooBig,
     TryFromInt(TryFromIntError),
 }
 
@@ -23,6 +26,14 @@ impl std::fmt::Display for SerialComError {
             SerialComError::COBSDecodeNoCommaFound => {
                 write!(f, "No comma (0) byte found whie decoding message.")
             }
+            SerialComError::COBSTooLittleData => write!(
+                f,
+                "Couldn't encode/decode message because message too short."
+            ),
+            SerialComError::SliceTooSmall => {
+                write!(f, "Slice too small to hold data part of message")
+            }
+            SerialComError::SliceTooBig => write!(f, "Data slice too big to fit into message"),
             SerialComError::TryFromInt(ref e) => e.fmt(f),
         }
     }
@@ -34,6 +45,9 @@ impl std::error::Error for SerialComError {
             SerialComError::QueueTooFull => None,
             SerialComError::QueueIndexingError => None,
             SerialComError::COBSDecodeNoCommaFound => None,
+            SerialComError::COBSTooLittleData => None,
+            SerialComError::SliceTooSmall => None,
+            SerialComError::SliceTooBig => None,
             SerialComError::TryFromInt(ref e) => Some(e),
         }
     }

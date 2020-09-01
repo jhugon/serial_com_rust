@@ -1,6 +1,9 @@
 use rand::prelude::*;
 use std::convert::TryFrom;
 
+use crate::error::SerialComError;
+use crate::error::SerialComResult;
+
 extern crate arraydeque;
 
 /// Trait for circular buffer helper functions useful for serial communications
@@ -21,6 +24,11 @@ pub trait CircBufExt {
     /// perc_extra_zero is the percentage of elements that will be 0, in addition to the number that
     /// would be 0 from the uniform distribution.
     fn push_back_rand(&mut self, n: &usize, perc_extra_zero: &u32);
+    /// Removes the first n elements off the front of the buffer
+    ///
+    /// Will return Ok(new length) on success or Err(QueueIndexingError) if not enough elements in
+    /// buffer to remove n.
+    fn remove_front_n(&mut self, n: &usize) -> SerialComResult<usize>;
 }
 
 impl CircBufExt for arraydeque::ArrayDeque<[u8; 8], arraydeque::Wrapping> {
@@ -66,6 +74,12 @@ impl CircBufExt for arraydeque::ArrayDeque<[u8; 8], arraydeque::Wrapping> {
                 self.push_back(rng.gen::<u8>());
             }
         }
+    }
+    fn remove_front_n(&mut self, n: &usize) -> SerialComResult<usize> {
+        for _ in 0..*n {
+            self.pop_front().ok_or(SerialComError::QueueIndexingError)?;
+        }
+        Ok(self.len())
     }
 }
 
@@ -113,6 +127,12 @@ impl CircBufExt for arraydeque::ArrayDeque<[u8; 16], arraydeque::Wrapping> {
             }
         }
     }
+    fn remove_front_n(&mut self, n: &usize) -> SerialComResult<usize> {
+        for _ in 0..*n {
+            self.pop_front().ok_or(SerialComError::QueueIndexingError)?;
+        }
+        Ok(self.len())
+    }
 }
 
 impl CircBufExt for arraydeque::ArrayDeque<[u8; 32], arraydeque::Wrapping> {
@@ -158,6 +178,12 @@ impl CircBufExt for arraydeque::ArrayDeque<[u8; 32], arraydeque::Wrapping> {
                 self.push_back(rng.gen::<u8>());
             }
         }
+    }
+    fn remove_front_n(&mut self, n: &usize) -> SerialComResult<usize> {
+        for _ in 0..*n {
+            self.pop_front().ok_or(SerialComError::QueueIndexingError)?;
+        }
+        Ok(self.len())
     }
 }
 
@@ -206,6 +232,12 @@ impl CircBufExt for arraydeque::ArrayDeque<[u8; 64], arraydeque::Wrapping> {
             }
         }
     }
+    fn remove_front_n(&mut self, n: &usize) -> SerialComResult<usize> {
+        for _ in 0..*n {
+            self.pop_front().ok_or(SerialComError::QueueIndexingError)?;
+        }
+        Ok(self.len())
+    }
 }
 
 impl CircBufExt for arraydeque::ArrayDeque<[u8; 128], arraydeque::Wrapping> {
@@ -251,5 +283,11 @@ impl CircBufExt for arraydeque::ArrayDeque<[u8; 128], arraydeque::Wrapping> {
                 self.push_back(rng.gen::<u8>());
             }
         }
+    }
+    fn remove_front_n(&mut self, n: &usize) -> SerialComResult<usize> {
+        for _ in 0..*n {
+            self.pop_front().ok_or(SerialComError::QueueIndexingError)?;
+        }
+        Ok(self.len())
     }
 }
