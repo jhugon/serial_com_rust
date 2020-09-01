@@ -11,6 +11,7 @@ pub enum SerialComError {
     COBSTooLittleData,
     SliceTooSmall,
     SliceTooBig,
+    CRCMismatch,
     TryFromInt(TryFromIntError),
 }
 
@@ -34,6 +35,7 @@ impl std::fmt::Display for SerialComError {
                 write!(f, "Slice too small to hold data part of message")
             }
             SerialComError::SliceTooBig => write!(f, "Data slice too big to fit into message"),
+            SerialComError::CRCMismatch => write!(f, "Received and computed CRCs don't match"),
             SerialComError::TryFromInt(ref e) => e.fmt(f),
         }
     }
@@ -48,6 +50,7 @@ impl std::error::Error for SerialComError {
             SerialComError::COBSTooLittleData => None,
             SerialComError::SliceTooSmall => None,
             SerialComError::SliceTooBig => None,
+            SerialComError::CRCMismatch => None,
             SerialComError::TryFromInt(ref e) => Some(e),
         }
     }
