@@ -1,6 +1,9 @@
 use arraydeque::ArrayDeque;
 use arraydeque::Wrapping;
-use serial_com_rust::*;
+
+use serial_com_rust::circbuf::CircBufExt;
+use serial_com_rust::cobs::COBSExt;
+use serial_com_rust::error::SerialComResult;
 
 fn main() -> SerialComResult<()> {
     const CAPACITY: usize = 64;
