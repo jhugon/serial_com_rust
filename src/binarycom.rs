@@ -1,11 +1,10 @@
 //use crate::circbuf::CircBufExt;
 use crate::cobs::COBSExt;
+use crate::crc::CRCExt;
 use crate::error::{SerialComError, SerialComResult};
 
-use crc_any::CRC;
 #[cfg(test)]
 use rand::prelude::*;
-use std::convert::TryFrom;
 
 pub trait BinaryCom {
     /// Put a message in output buffer
@@ -45,13 +44,9 @@ impl BinaryCom for arraydeque::ArrayDeque<[u8; 16], arraydeque::Wrapping> {
         for el in data {
             self.push_back(*el);
         }
-        let mut crc16 = CRC::crc16dnp();
-        let (slice1, slice2) = self.as_slices();
-        crc16.digest(slice1);
-        crc16.digest(slice2);
-        let crc_num: u16 = u16::try_from(crc16.get_crc())?;
-        self.push_back(u8::try_from(crc_num >> 8 & 0xFF)?);
-        self.push_back(u8::try_from(crc_num & 0xFF)?);
+        let (crc_high_byte, crc_low_byte) = self.compute_crc_bytes(&self.len())?;
+        self.push_back(crc_high_byte);
+        self.push_back(crc_low_byte);
         self.cobs_encode()?;
         Ok(self.len())
     }
@@ -67,27 +62,18 @@ impl BinaryCom for arraydeque::ArrayDeque<[u8; 16], arraydeque::Wrapping> {
         let msg_chk_size = self.cobs_decode()?;
         let msg_size = msg_chk_size - 2;
         let data_size = msg_size - 2;
-        let mut crc16 = CRC::crc16dnp();
-        let (slice1, slice2) = self.as_slices();
-        let slice1_size = slice1.len();
-        if msg_size <= slice1_size {
-            crc16.digest(&slice1[0..msg_size]);
-        } else {
-            crc16.digest(&slice1);
-            crc16.digest(&slice2[0..(msg_size - slice1_size)]);
-        }
-        let crc_num: u16 = u16::try_from(crc16.get_crc())?;
+        let (crc_high_byte, crc_low_byte) = self.compute_crc_bytes(&msg_size)?;
         *version = self.pop_front().ok_or(SerialComError::QueueIndexingError)?;
         *command = self.pop_front().ok_or(SerialComError::QueueIndexingError)?;
         for i in 0..(data_size) {
             data[i] = self.pop_front().ok_or(SerialComError::QueueIndexingError)?;
         }
-        let crc_rec_high_byte =
-            u16::from(self.pop_front().ok_or(SerialComError::QueueIndexingError)?);
-        let crc_rec_low_byte =
-            u16::from(self.pop_front().ok_or(SerialComError::QueueIndexingError)?);
-        let crc_rec: u16 = (crc_rec_high_byte << 8) & crc_rec_low_byte;
-        if crc_num != crc_rec {
+        let crc_rec_high_byte = self.pop_front().ok_or(SerialComError::QueueIndexingError)?;
+        let crc_rec_low_byte = self.pop_front().ok_or(SerialComError::QueueIndexingError)?;
+        if crc_high_byte != crc_rec_high_byte {
+            return Err(SerialComError::CRCMismatch);
+        }
+        if crc_low_byte != crc_rec_low_byte {
             return Err(SerialComError::CRCMismatch);
         }
         Ok(data_size)
@@ -105,13 +91,9 @@ impl BinaryCom for arraydeque::ArrayDeque<[u8; 64], arraydeque::Wrapping> {
         for el in data {
             self.push_back(*el);
         }
-        let mut crc16 = CRC::crc16dnp();
-        let (slice1, slice2) = self.as_slices();
-        crc16.digest(slice1);
-        crc16.digest(slice2);
-        let crc_num: u16 = u16::try_from(crc16.get_crc())?;
-        self.push_back(u8::try_from(crc_num >> 8 & 0xFF)?);
-        self.push_back(u8::try_from(crc_num & 0xFF)?);
+        let (crc_high_byte, crc_low_byte) = self.compute_crc_bytes(&self.len())?;
+        self.push_back(crc_high_byte);
+        self.push_back(crc_low_byte);
         self.cobs_encode()?;
         Ok(self.len())
     }
@@ -127,27 +109,18 @@ impl BinaryCom for arraydeque::ArrayDeque<[u8; 64], arraydeque::Wrapping> {
         let msg_chk_size = self.cobs_decode()?;
         let msg_size = msg_chk_size - 2;
         let data_size = msg_size - 2;
-        let mut crc16 = CRC::crc16dnp();
-        let (slice1, slice2) = self.as_slices();
-        let slice1_size = slice1.len();
-        if msg_size <= slice1_size {
-            crc16.digest(&slice1[0..msg_size]);
-        } else {
-            crc16.digest(&slice1);
-            crc16.digest(&slice2[0..(msg_size - slice1_size)]);
-        }
-        let crc_num: u16 = u16::try_from(crc16.get_crc())?;
+        let (crc_high_byte, crc_low_byte) = self.compute_crc_bytes(&msg_size)?;
         *version = self.pop_front().ok_or(SerialComError::QueueIndexingError)?;
         *command = self.pop_front().ok_or(SerialComError::QueueIndexingError)?;
         for i in 0..(data_size) {
             data[i] = self.pop_front().ok_or(SerialComError::QueueIndexingError)?;
         }
-        let crc_rec_high_byte =
-            u16::from(self.pop_front().ok_or(SerialComError::QueueIndexingError)?);
-        let crc_rec_low_byte =
-            u16::from(self.pop_front().ok_or(SerialComError::QueueIndexingError)?);
-        let crc_rec: u16 = (crc_rec_high_byte << 8) & crc_rec_low_byte;
-        if crc_num != crc_rec {
+        let crc_rec_high_byte = self.pop_front().ok_or(SerialComError::QueueIndexingError)?;
+        let crc_rec_low_byte = self.pop_front().ok_or(SerialComError::QueueIndexingError)?;
+        if crc_high_byte != crc_rec_high_byte {
+            return Err(SerialComError::CRCMismatch);
+        }
+        if crc_low_byte != crc_rec_low_byte {
             return Err(SerialComError::CRCMismatch);
         }
         Ok(data_size)
