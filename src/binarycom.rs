@@ -44,7 +44,7 @@ impl BinaryCom for arraydeque::ArrayDeque<[u8; 16], arraydeque::Wrapping> {
         for el in data {
             self.push_back(*el);
         }
-        let (crc_high_byte, crc_low_byte) = self.compute_crc_bytes(&self.len())?;
+        let (crc_high_byte, crc_low_byte) = self.compute_crc_bytes(self.len())?;
         self.push_back(crc_high_byte);
         self.push_back(crc_low_byte);
         self.cobs_encode()?;
@@ -56,13 +56,14 @@ impl BinaryCom for arraydeque::ArrayDeque<[u8; 16], arraydeque::Wrapping> {
         command: &mut u8,
         data: &mut [u8],
     ) -> SerialComResult<usize> {
-        if data.len() < 16 - 4 {
+        if data.len() < 16 - 6 {
+            println!("receive_message: data len: {}", data.len());
             return Err(SerialComError::SliceTooSmall);
         }
         let msg_chk_size = self.cobs_decode()?;
         let msg_size = msg_chk_size - 2;
         let data_size = msg_size - 2;
-        let (crc_high_byte, crc_low_byte) = self.compute_crc_bytes(&msg_size)?;
+        let (crc_high_byte, crc_low_byte) = self.compute_crc_bytes(msg_size)?;
         *version = self.pop_front().ok_or(SerialComError::QueueIndexingError)?;
         *command = self.pop_front().ok_or(SerialComError::QueueIndexingError)?;
         for i in 0..(data_size) {
@@ -91,7 +92,7 @@ impl BinaryCom for arraydeque::ArrayDeque<[u8; 64], arraydeque::Wrapping> {
         for el in data {
             self.push_back(*el);
         }
-        let (crc_high_byte, crc_low_byte) = self.compute_crc_bytes(&self.len())?;
+        let (crc_high_byte, crc_low_byte) = self.compute_crc_bytes(self.len())?;
         self.push_back(crc_high_byte);
         self.push_back(crc_low_byte);
         self.cobs_encode()?;
@@ -103,13 +104,13 @@ impl BinaryCom for arraydeque::ArrayDeque<[u8; 64], arraydeque::Wrapping> {
         command: &mut u8,
         data: &mut [u8],
     ) -> SerialComResult<usize> {
-        if data.len() < 64 - 4 {
+        if data.len() < 64 - 6 {
             return Err(SerialComError::SliceTooSmall);
         }
         let msg_chk_size = self.cobs_decode()?;
         let msg_size = msg_chk_size - 2;
         let data_size = msg_size - 2;
-        let (crc_high_byte, crc_low_byte) = self.compute_crc_bytes(&msg_size)?;
+        let (crc_high_byte, crc_low_byte) = self.compute_crc_bytes(msg_size)?;
         *version = self.pop_front().ok_or(SerialComError::QueueIndexingError)?;
         *command = self.pop_front().ok_or(SerialComError::QueueIndexingError)?;
         for i in 0..(data_size) {
@@ -136,7 +137,7 @@ fn test_send() {
     let data: [u8; 10] = [0, 1, 3, 4, 5, 6, 7, 8, 9, 10];
     buf.send_message(&ver, &com, &data)
         .expect("Couldn't send_message");
-    let correctvec: Vec<u8> = [3, 0x3A, 0x8F, 10, 1, 3, 4, 5, 6, 7, 8, 9, 10, 0].to_vec();
+    let correctvec: Vec<u8> = [3, 0x3A, 0x8F, 12, 1, 3, 4, 5, 6, 7, 8, 9, 10, 151, 197, 0].to_vec();
     let mut outvec: Vec<u8> = Vec::new();
     for _ in 0..buf.len() {
         outvec.push(buf.pop_front().expect("Element not found"));
@@ -163,6 +164,11 @@ fn test_send_rand() {
         correctvec.push(ver);
         correctvec.push(com);
         correctvec.extend(data);
+        let (crc_h, crc_l) = correctvec
+            .compute_crc_bytes(correctvec.len())
+            .expect("Couldn't compute CRC");
+        correctvec.push(crc_h);
+        correctvec.push(crc_l);
         correctvec
             .cobs_encode()
             .expect("Couldn't encode correct vec");
@@ -178,24 +184,29 @@ fn test_send_rand() {
 fn test_receive() {
     let mut buf: arraydeque::ArrayDeque<[u8; 16], arraydeque::Wrapping> =
         arraydeque::ArrayDeque::new();
-    buf.push_back(2); // 0
-    buf.push_back(0xFF);
-    buf.push_back(5); // 0
-    buf.push_back(0xFF);
-    buf.push_back(0xFF);
-    buf.push_back(0xFF);
-    buf.push_back(0xFF);
+    buf.push_back(3);
     buf.push_back(0);
+    buf.push_back(0xFF);
+    buf.push_back(0xFF);
+    buf.push_back(0xFF);
+    buf.push_back(0xFF);
+    buf.push_back(0xFF);
+    let (crc_h, crc_l) = buf
+        .compute_crc_bytes(buf.len())
+        .expect("Couldn't compute CRC");
+    buf.push_back(crc_h);
+    buf.push_back(crc_l);
+    buf.cobs_encode().expect("Couldn't encode buf");
     let mut ver: u8 = 3;
     let mut com: u8 = 3;
-    let mut data: [u8; 10] = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
+    let mut data: [u8; 12] = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
     let n_data = buf
         .receive_message(&mut ver, &mut com, &mut data)
         .expect("Couldn't receive_message");
-    assert_eq!(n_data, 4);
-    assert_eq!(ver, 0xFF);
+    assert_eq!(n_data, 5);
+    assert_eq!(ver, 3);
     assert_eq!(com, 0);
-    for i in 0..4 {
+    for i in 0..5 {
         assert_eq!(data[i], 0xFF);
     }
 }
@@ -206,13 +217,18 @@ fn test_receive_rand() {
         arraydeque::ArrayDeque::new();
     let mut rng = rand::thread_rng();
     for _trial in 0..1000 {
-        let message_size: usize = rng.gen_range(2, 15);
+        let message_size: usize = rng.gen_range(2, 13);
         let mut message: Vec<u8> = Vec::new();
         message.resize(message_size, 0);
         rng.fill(&mut message[..]);
         let corr_ver = message[0];
         let corr_com = message[1];
         let corr_data: Vec<u8> = message[2..].to_vec();
+        let (crc_h, crc_l) = message
+            .compute_crc_bytes(message.len())
+            .expect("Couldn't compute CRC");
+        message.push(crc_h);
+        message.push(crc_l);
         message
             .cobs_encode()
             .expect("Error while encoding test data!");
@@ -221,7 +237,7 @@ fn test_receive_rand() {
         }
         let mut ver: u8 = 3;
         let mut com: u8 = 3;
-        let mut data: [u8; 12] = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
+        let mut data: [u8; 10] = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
         let n_data = buf
             .receive_message(&mut ver, &mut com, &mut data)
             .expect("Couldn't receive message");
