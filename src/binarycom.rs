@@ -78,7 +78,7 @@ pub trait BinaryCom {
     /// Unpack register read message
     ///
     /// Returns result holding register number
-    fn dev_read_reg_unpack(&mut self, data: &[u8]) -> SerialComResult<u16> {
+    fn dev_read_reg_unpack(&self, data: &[u8]) -> SerialComResult<u16> {
         if data.len() < 2 {
             return Err(SerialComError::SliceTooSmall);
         }
@@ -90,7 +90,7 @@ pub trait BinaryCom {
     /// Unpack 8-bit register write message
     ///
     /// Returns result holding (register number, register value)
-    fn dev_write_reg8_unpack(&mut self, data: &[u8]) -> SerialComResult<(u16, u8)> {
+    fn dev_write_reg8_unpack(&self, data: &[u8]) -> SerialComResult<(u16, u8)> {
         if data.len() < 3 {
             return Err(SerialComError::SliceTooSmall);
         }
@@ -102,7 +102,7 @@ pub trait BinaryCom {
     /// Unpack 8-bit register write message
     ///
     /// Returns result holding (register number, register value)
-    fn dev_write_reg32_unpack(&mut self, data: &[u8]) -> SerialComResult<(u16, u32)> {
+    fn dev_write_reg32_unpack(&self, data: &[u8]) -> SerialComResult<(u16, u32)> {
         if data.len() < 6 {
             return Err(SerialComError::SliceTooSmall);
         }
