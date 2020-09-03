@@ -1,45 +1,168 @@
 //use crate::circbuf::CircBufExt;
+#[cfg(test)]
+use crate::circbuf::CircBufExt;
 use crate::cobs::COBSExt;
 use crate::crc::CRCExt;
 use crate::error::{SerialComError, SerialComResult};
 
 #[cfg(test)]
 use rand::prelude::*;
+use std::convert::TryFrom;
 
 pub trait BinaryCom {
     /// Put a message in output buffer
     ///
     /// Do appropriate formatting, byte stuffing, checksum, etc.
     ///
-    /// The max data buffer size is the max message size - 6. That is 1 byte overhead, 1 byte comma, 1
-    /// byte version, 1 byte command, 2 bytes checksum.
+    /// The max data buffer size is the max message size - 5. That is 1 byte overhead, 1 byte comma,
+    /// 1 byte command, 2 bytes checksum.
     ///
     /// Returns final message length
-    fn send_message(&mut self, version: &u8, command: &u8, data: &[u8]) -> SerialComResult<usize>;
+    fn send_message(&mut self, command: &u8, data: &[u8]) -> SerialComResult<usize>;
 
     /// Read message (if one exists) from input buffer into message
     ///
     /// Do appropriate formatting, byte stuffing, checksum, etc.
     ///
-    /// The data buffer must be the max message size - 6. That is 1 byte overhead, 1 byte comma, 1
-    /// byte version, 1 byte command, 2 bytes checksum.
+    /// The data buffer must be the max message size - 5. That is 1 byte overhead, 1 byte comma,
+    /// 1 byte command, 2 bytes checksum.
     ///
     /// Returns the received data length
-    fn receive_message(
-        &mut self,
-        version: &mut u8,
-        command: &mut u8,
-        data: &mut [u8],
-    ) -> SerialComResult<usize>;
+    fn receive_message(&mut self, command: &mut u8, data: &mut [u8]) -> SerialComResult<usize>;
+
+    /// Initiate register read
+    ///
+    /// Meant to be used on host to read a device register
+    fn host_read_reg(&mut self, reg_num: u16) -> SerialComResult<u32> {
+        let command = 1u8;
+        let data: [u8; 2] = [
+            u8::try_from(reg_num >> 8 & 0xFF)?,
+            u8::try_from(reg_num & 0xFF)?,
+        ];
+        self.send_message(&command, &data)?;
+        Ok(0u32)
+    }
+
+    /// Initiate 8-bit wide register write
+    ///
+    /// Meant to be used on host to write a device register
+    ///
+    fn host_write_reg8(&mut self, reg_num: u16, reg_val: u8) -> SerialComResult<()> {
+        let command = 2u8;
+        let data: [u8; 3] = [
+            u8::try_from(reg_num >> 8 & 0xFF)?,
+            u8::try_from(reg_num & 0xFF)?,
+            reg_val,
+        ];
+        self.send_message(&command, &data)?;
+        Ok(())
+    }
+
+    /// Initiate 32-bit wide register write
+    ///
+    /// Meant to be used on host to write a device register
+    fn host_write_reg32(&mut self, reg_num: u16, reg_val: u32) -> SerialComResult<()> {
+        let command = 2u8;
+        let data: [u8; 6] = [
+            u8::try_from(reg_num >> 8 & 0xFF)?,
+            u8::try_from(reg_num & 0xFF)?,
+            u8::try_from(reg_val >> (8 * 3) & 0xFF)?,
+            u8::try_from(reg_val >> (8 * 2) & 0xFF)?,
+            u8::try_from(reg_val >> (8 * 1) & 0xFF)?,
+            u8::try_from(reg_val >> (8 * 0) & 0xFF)?,
+        ];
+        self.send_message(&command, &data)?;
+        Ok(())
+    }
+
+    /// Unpack register read message
+    ///
+    /// Returns result holding register number
+    fn dev_read_reg_unpack(&mut self, data: &[u8]) -> SerialComResult<u16> {
+        if data.len() < 2 {
+            return Err(SerialComError::SliceTooSmall);
+        }
+        let reg_num =
+            (u16::from(data[0]) << (8 * 1) & 0xFF) & (u16::from(data[1]) << (8 * 0) & 0xFF);
+        Ok(reg_num)
+    }
+
+    /// Unpack 8-bit register write message
+    ///
+    /// Returns result holding (register number, register value)
+    fn dev_write_reg8_unpack(&mut self, data: &[u8]) -> SerialComResult<(u16, u8)> {
+        if data.len() < 3 {
+            return Err(SerialComError::SliceTooSmall);
+        }
+        let reg_num =
+            (u16::from(data[0]) << (8 * 1) & 0xFF) & (u16::from(data[1]) << (8 * 0) & 0xFF);
+        let reg_val = data[2];
+        Ok((reg_num, reg_val))
+    }
+    /// Unpack 8-bit register write message
+    ///
+    /// Returns result holding (register number, register value)
+    fn dev_write_reg32_unpack(&mut self, data: &[u8]) -> SerialComResult<(u16, u32)> {
+        if data.len() < 6 {
+            return Err(SerialComError::SliceTooSmall);
+        }
+        let reg_num: u16 =
+            (u16::from(data[0]) << (8 * 1) & 0xFF) & (u16::from(data[1]) << (8 * 0) & 0xFF);
+        let reg_val: u32 = (u32::from(data[2]) << (8 * 3) & 0xFF)
+            & (u32::from(data[3]) << (8 * 2) & 0xFF)
+            & (u32::from(data[4]) << (8 * 1) & 0xFF)
+            & (u32::from(data[5]) << (8 * 0) & 0xFF);
+        Ok((reg_num, reg_val))
+    }
+
+    /// Respond to 8-bit register read message
+    ///
+    fn dev_read_reg8_respond(&mut self, reg_num: u16, reg_val: u8) -> SerialComResult<()> {
+        let command = 1u8;
+        let data: [u8; 3] = [
+            u8::try_from(reg_num >> 8 & 0xFF)?,
+            u8::try_from(reg_num & 0xFF)?,
+            reg_val,
+        ];
+        self.send_message(&command, &data)?;
+        Ok(())
+    }
+
+    /// Respond to 32-bit register read message
+    ///
+    fn dev_read_reg32_respond(&mut self, reg_num: u16, reg_val: u32) -> SerialComResult<()> {
+        let command = 1u8;
+        let data: [u8; 6] = [
+            u8::try_from(reg_num >> 8 & 0xFF)?,
+            u8::try_from(reg_num & 0xFF)?,
+            u8::try_from(reg_val >> (8 * 3) & 0xFF)?,
+            u8::try_from(reg_val >> (8 * 2) & 0xFF)?,
+            u8::try_from(reg_val >> (8 * 1) & 0xFF)?,
+            u8::try_from(reg_val >> (8 * 0) & 0xFF)?,
+        ];
+        self.send_message(&command, &data)?;
+        Ok(())
+    }
+
+    /// Respond to 8-bit register write message
+    ///
+    fn dev_write_reg_respond(&mut self, reg_num: u16) -> SerialComResult<()> {
+        let command = 2u8;
+        let data: [u8; 2] = [
+            u8::try_from(reg_num >> 8 & 0xFF)?,
+            u8::try_from(reg_num & 0xFF)?,
+        ];
+        self.send_message(&command, &data)?;
+        Ok(())
+    }
 }
 
 impl BinaryCom for arraydeque::ArrayDeque<[u8; 16], arraydeque::Wrapping> {
-    fn send_message(&mut self, version: &u8, command: &u8, data: &[u8]) -> SerialComResult<usize> {
-        if data.len() > 16 - 6 {
+    fn send_message(&mut self, command: &u8, data: &[u8]) -> SerialComResult<usize> {
+        if data.len() > 16 - 5 {
             return Err(SerialComError::SliceTooBig);
         }
         self.clear();
-        self.push_back(*version);
         self.push_back(*command);
         for el in data {
             self.push_back(*el);
@@ -50,21 +173,15 @@ impl BinaryCom for arraydeque::ArrayDeque<[u8; 16], arraydeque::Wrapping> {
         self.cobs_encode()?;
         Ok(self.len())
     }
-    fn receive_message(
-        &mut self,
-        version: &mut u8,
-        command: &mut u8,
-        data: &mut [u8],
-    ) -> SerialComResult<usize> {
-        if data.len() < 16 - 6 {
+    fn receive_message(&mut self, command: &mut u8, data: &mut [u8]) -> SerialComResult<usize> {
+        if data.len() < 16 - 5 {
             println!("receive_message: data len: {}", data.len());
             return Err(SerialComError::SliceTooSmall);
         }
         let msg_chk_size = self.cobs_decode()?;
         let msg_size = msg_chk_size - 2;
-        let data_size = msg_size - 2;
+        let data_size = msg_size - 1;
         let (crc_high_byte, crc_low_byte) = self.compute_crc_bytes(msg_size)?;
-        *version = self.pop_front().ok_or(SerialComError::QueueIndexingError)?;
         *command = self.pop_front().ok_or(SerialComError::QueueIndexingError)?;
         for i in 0..(data_size) {
             data[i] = self.pop_front().ok_or(SerialComError::QueueIndexingError)?;
@@ -72,9 +189,31 @@ impl BinaryCom for arraydeque::ArrayDeque<[u8; 16], arraydeque::Wrapping> {
         let crc_rec_high_byte = self.pop_front().ok_or(SerialComError::QueueIndexingError)?;
         let crc_rec_low_byte = self.pop_front().ok_or(SerialComError::QueueIndexingError)?;
         if crc_high_byte != crc_rec_high_byte {
+            #[cfg(test)]
+            {
+                println!(
+                    "Error CRCMismatch: received: {:02X}{:02X}, computed: {:02X}{:02X}",
+                    crc_rec_high_byte, crc_rec_low_byte, crc_high_byte, crc_low_byte
+                );
+                println!(
+                    "Error for message command: {:02X} data size: {}",
+                    command, data_size
+                )
+            }
             return Err(SerialComError::CRCMismatch);
         }
         if crc_low_byte != crc_rec_low_byte {
+            #[cfg(test)]
+            {
+                println!(
+                    "Error CRCMismatch: received: {:02X}{:02X}, computed: {:02X}{:02X}",
+                    crc_rec_high_byte, crc_rec_low_byte, crc_high_byte, crc_low_byte
+                );
+                println!(
+                    "Error for message command: {:02X} data size: {}",
+                    command, data_size
+                )
+            }
             return Err(SerialComError::CRCMismatch);
         }
         Ok(data_size)
@@ -82,12 +221,11 @@ impl BinaryCom for arraydeque::ArrayDeque<[u8; 16], arraydeque::Wrapping> {
 }
 
 impl BinaryCom for arraydeque::ArrayDeque<[u8; 64], arraydeque::Wrapping> {
-    fn send_message(&mut self, version: &u8, command: &u8, data: &[u8]) -> SerialComResult<usize> {
-        if data.len() > 64 - 6 {
+    fn send_message(&mut self, command: &u8, data: &[u8]) -> SerialComResult<usize> {
+        if data.len() > 64 - 5 {
             return Err(SerialComError::SliceTooBig);
         }
         self.clear();
-        self.push_back(*version);
         self.push_back(*command);
         for el in data {
             self.push_back(*el);
@@ -98,20 +236,14 @@ impl BinaryCom for arraydeque::ArrayDeque<[u8; 64], arraydeque::Wrapping> {
         self.cobs_encode()?;
         Ok(self.len())
     }
-    fn receive_message(
-        &mut self,
-        version: &mut u8,
-        command: &mut u8,
-        data: &mut [u8],
-    ) -> SerialComResult<usize> {
-        if data.len() < 64 - 6 {
+    fn receive_message(&mut self, command: &mut u8, data: &mut [u8]) -> SerialComResult<usize> {
+        if data.len() < 64 - 5 {
             return Err(SerialComError::SliceTooSmall);
         }
         let msg_chk_size = self.cobs_decode()?;
         let msg_size = msg_chk_size - 2;
-        let data_size = msg_size - 2;
+        let data_size = msg_size - 1;
         let (crc_high_byte, crc_low_byte) = self.compute_crc_bytes(msg_size)?;
-        *version = self.pop_front().ok_or(SerialComError::QueueIndexingError)?;
         *command = self.pop_front().ok_or(SerialComError::QueueIndexingError)?;
         for i in 0..(data_size) {
             data[i] = self.pop_front().ok_or(SerialComError::QueueIndexingError)?;
@@ -132,12 +264,11 @@ impl BinaryCom for arraydeque::ArrayDeque<[u8; 64], arraydeque::Wrapping> {
 fn test_send() {
     let mut buf: arraydeque::ArrayDeque<[u8; 16], arraydeque::Wrapping> =
         arraydeque::ArrayDeque::new();
-    let ver: u8 = 0x3A;
     let com: u8 = 0x8F;
-    let data: [u8; 10] = [0, 1, 3, 4, 5, 6, 7, 8, 9, 10];
-    buf.send_message(&ver, &com, &data)
+    let data: [u8; 10] = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9];
+    buf.send_message(&com, &data)
         .expect("Couldn't send_message");
-    let correctvec: Vec<u8> = [3, 0x3A, 0x8F, 12, 1, 3, 4, 5, 6, 7, 8, 9, 10, 151, 197, 0].to_vec();
+    let correctvec: Vec<u8> = [2, 0x8F, 12, 1, 2, 3, 4, 5, 6, 7, 8, 9, 68, 78, 0].to_vec();
     let mut outvec: Vec<u8> = Vec::new();
     for _ in 0..buf.len() {
         outvec.push(buf.pop_front().expect("Element not found"));
@@ -151,17 +282,15 @@ fn test_send_rand() {
         arraydeque::ArrayDeque::new();
     let mut rng = rand::thread_rng();
     for _trial in 0..1000 {
-        let ver: u8 = rand::random::<u8>();
         let com: u8 = rand::random::<u8>();
-        let data_size: usize = rng.gen_range(0, 11);
+        let data_size: usize = rng.gen_range(0, 12);
         let mut data: Vec<u8> = Vec::new();
         data.resize(data_size, 0);
         rng.fill(&mut data[..]);
-        buf.send_message(&ver, &com, &data)
+        buf.send_message(&com, &data)
             .expect("Couldn't send_message");
 
         let mut correctvec: Vec<u8> = Vec::new();
-        correctvec.push(ver);
         correctvec.push(com);
         correctvec.extend(data);
         let (crc_h, crc_l) = correctvec
@@ -184,30 +313,29 @@ fn test_send_rand() {
 fn test_receive() {
     let mut buf: arraydeque::ArrayDeque<[u8; 16], arraydeque::Wrapping> =
         arraydeque::ArrayDeque::new();
-    buf.push_back(3);
+    buf.push_back(8);
     buf.push_back(0);
-    buf.push_back(0xFF);
-    buf.push_back(0xFF);
-    buf.push_back(0xFF);
-    buf.push_back(0xFF);
-    buf.push_back(0xFF);
+    buf.push_back(0);
+    buf.push_back(0);
+    buf.push_back(0);
+    buf.push_back(0);
+    buf.push_back(0);
     let (crc_h, crc_l) = buf
         .compute_crc_bytes(buf.len())
         .expect("Couldn't compute CRC");
     buf.push_back(crc_h);
     buf.push_back(crc_l);
     buf.cobs_encode().expect("Couldn't encode buf");
-    let mut ver: u8 = 3;
+    buf.print();
     let mut com: u8 = 3;
-    let mut data: [u8; 12] = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
+    let mut data: [u8; 11] = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
     let n_data = buf
-        .receive_message(&mut ver, &mut com, &mut data)
+        .receive_message(&mut com, &mut data)
         .expect("Couldn't receive_message");
-    assert_eq!(n_data, 5);
-    assert_eq!(ver, 3);
-    assert_eq!(com, 0);
-    for i in 0..5 {
-        assert_eq!(data[i], 0xFF);
+    assert_eq!(n_data, 6);
+    assert_eq!(com, 8);
+    for i in 0..6 {
+        assert_eq!(data[i], 0);
     }
 }
 
@@ -217,13 +345,12 @@ fn test_receive_rand() {
         arraydeque::ArrayDeque::new();
     let mut rng = rand::thread_rng();
     for _trial in 0..1000 {
-        let message_size: usize = rng.gen_range(2, 13);
+        let message_size: usize = rng.gen_range(1, 13);
         let mut message: Vec<u8> = Vec::new();
         message.resize(message_size, 0);
         rng.fill(&mut message[..]);
-        let corr_ver = message[0];
-        let corr_com = message[1];
-        let corr_data: Vec<u8> = message[2..].to_vec();
+        let corr_com = message[0];
+        let corr_data: Vec<u8> = message[1..].to_vec();
         let (crc_h, crc_l) = message
             .compute_crc_bytes(message.len())
             .expect("Couldn't compute CRC");
@@ -235,19 +362,30 @@ fn test_receive_rand() {
         for el in message.iter() {
             buf.push_back(*el);
         }
-        let mut ver: u8 = 3;
+        message.print();
+        buf.print();
         let mut com: u8 = 3;
-        let mut data: [u8; 10] = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
+        let mut data: [u8; 11] = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
         let n_data = buf
-            .receive_message(&mut ver, &mut com, &mut data)
+            .receive_message(&mut com, &mut data)
             .expect("Couldn't receive message");
-        assert_eq!(n_data, message_size - 2);
+
+        assert_eq!(n_data, message_size - 1);
         assert_eq!(n_data, corr_data.len());
-        assert_eq!(ver, corr_ver);
         assert_eq!(com, corr_com);
         for i in 0..n_data {
             assert_eq!(data[i], corr_data[i]);
         }
         buf.clear();
     }
+}
+
+#[test]
+fn test_receive_nothing() {
+    let mut buf: arraydeque::ArrayDeque<[u8; 16], arraydeque::Wrapping> =
+        arraydeque::ArrayDeque::new();
+    let mut com: u8 = 3;
+    let mut data: [u8; 11] = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
+    buf.receive_message(&mut com, &mut data)
+        .expect_err("Should be COBSTooLittleData error!");
 }

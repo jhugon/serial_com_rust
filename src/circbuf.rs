@@ -291,3 +291,51 @@ impl CircBufExt for arraydeque::ArrayDeque<[u8; 128], arraydeque::Wrapping> {
         Ok(self.len())
     }
 }
+
+impl CircBufExt for Vec<u8> {
+    fn print(&self) {
+        println!("Vector: capacity: {}, len: {}", self.capacity(), self.len());
+        print!("  [");
+        let lasti = self.len() - 1;
+        for (i, element) in self.iter().enumerate() {
+            if i == lasti {
+                println!("{}]", element)
+            } else {
+                print!("{}, ", element)
+            }
+        }
+        print!("  [");
+        for (i, element) in self.iter().enumerate() {
+            if i == lasti {
+                println!("{:02X}]", element)
+            } else {
+                print!("{:02X}, ", element)
+            }
+        }
+        print!("  ");
+        for element in self.iter() {
+            let ch_result = char::try_from(*element);
+            match ch_result {
+                Ok(ch) => print!("{}", ch.escape_default()),
+                Err(_) => print!("{}", '\u{FFFD}'),
+            }
+        }
+        println!("");
+    }
+    fn push_back_rand(&mut self, n: &usize, perc_extra_zero: &u32) {
+        let mut rng = thread_rng();
+        for _i_element in 0..*n {
+            if rng.gen_ratio(*perc_extra_zero, 100) {
+                self.push(0u8);
+            } else {
+                self.push(rng.gen::<u8>());
+            }
+        }
+    }
+    fn remove_front_n(&mut self, n: &usize) -> SerialComResult<usize> {
+        for _ in 0..*n {
+            self.remove(0);
+        }
+        Ok(self.len())
+    }
+}
