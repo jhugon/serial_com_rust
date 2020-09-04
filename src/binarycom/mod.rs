@@ -11,6 +11,7 @@ use crate::error::{SerialComError, SerialComResult};
 #[cfg(test)]
 use rand::prelude::*;
 
+/// Meant to be used as methods on arraydeque::ArrayDeque<[u8; N], arraydeque::Wrapping>
 pub trait BinaryCom {
     /// Put a message in output buffer
     ///

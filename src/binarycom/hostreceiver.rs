@@ -92,3 +92,67 @@ fn message_router(
     }
     Ok(())
 }
+
+/// unpack tx messages
+///
+/// command unpacking:
+///
+/// Lowest 3 bits are the word size in bits / 4
+/// Next 3 bits are the number of words in a single sample (for simultaneous measurements)
+/// The top 2 bits are reserved and should be 0
+///
+/// command = 0x80 means the data is UTF-8 text
+pub fn unpack_tx(command: u8, data: Vec<u8>) -> SerialComResult<Vec<u32>> {
+    let word_size_bits = (command & 0b111) * 4;
+    let n_per_sample_word = command >> 3 & 0x1F;
+    if n_per_sample_word != 1 {
+        unimplemented!("Haven't implemented multiple words per sample");
+    }
+    match word_size_bits {
+        4 => Ok(data
+            .iter()
+            .map(|x| vec![x >> 0xF, x & 0xF])
+            .flatten()
+            .map(|x| u32::from(x))
+            .collect()),
+        8 => Ok(data.iter().map(|x| u32::from(*x)).collect()),
+        12 => {
+            if data.len() % 3 != 0 {
+                panic!("data for 12 bit ints must be a multiple of 3 long!");
+            }
+            let mut result: Vec<u32> = Vec::new();
+            for i in (0..data.len()).step_by(3) {
+                let el1 = u32::from(data[i]) << 4 & (u32::from(data[i + 1]) >> 4);
+                result.push(el1);
+                let el2 = (u32::from(data[i + 1]) & 0xF) << 4 & u32::from(data[i + 2]);
+                result.push(el2);
+            }
+            Ok(result)
+        }
+        16 => {
+            if data.len() % 2 != 0 {
+                panic!("data for 16 bit ints must be a multiple of 2 long!");
+            }
+            let datau32s = data.iter().map(|x| u32::from(*x));
+            let evens = datau32s.clone().step_by(2);
+            let odds = datau32s.skip(1).step_by(2);
+            Ok(evens.zip(odds).map(|(e, o)| e << 8 & o).collect()) // msb first--big-endian
+        }
+        32 => {
+            if data.len() % 4 != 0 {
+                panic!("data for 32 bit ints must be a multiple of 4 long!");
+            }
+            let datau32s = data.iter().map(|x| u32::from(*x));
+            let d0s = datau32s.clone().step_by(4);
+            let d1s = datau32s.clone().skip(1).step_by(4);
+            let d2s = datau32s.clone().skip(2).step_by(4);
+            let d3s = datau32s.clone().skip(3).step_by(4);
+            // msb first--big-endian
+            let d01s = d0s.zip(d1s).map(|(d0, d1)| d0 << 8 & d1);
+            let d23s = d2s.zip(d3s).map(|(d0, d1)| d0 << 8 & d1);
+            let d0123s = d01s.zip(d23s).map(|(d01, d12)| d01 << 16 & d12);
+            Ok(d0123s.collect())
+        }
+        _ => unimplemented!("Only implemented 8, 16, 32 bit streaming!"),
+    }
+}
