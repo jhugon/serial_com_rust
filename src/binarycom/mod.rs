@@ -1,3 +1,6 @@
+pub mod hostreceiver;
+pub mod packers;
+
 //use crate::circbuf::CircBufExt;
 #[cfg(test)]
 use crate::circbuf::CircBufExt;
@@ -7,7 +10,6 @@ use crate::error::{SerialComError, SerialComResult};
 
 #[cfg(test)]
 use rand::prelude::*;
-use std::convert::TryFrom;
 
 pub trait BinaryCom {
     /// Put a message in output buffer
@@ -35,10 +37,8 @@ pub trait BinaryCom {
     /// Meant to be used on host to read a device register
     fn host_read_reg(&mut self, reg_num: u16) -> SerialComResult<u32> {
         let command = 1u8;
-        let data: [u8; 2] = [
-            u8::try_from(reg_num >> 8 & 0xFF)?,
-            u8::try_from(reg_num & 0xFF)?,
-        ];
+        let mut data: [u8; 2] = [0; 2];
+        packers::host_read_reg_pack(reg_num, &mut data)?;
         self.send_message(&command, &data)?;
         Ok(0u32)
     }
@@ -49,11 +49,8 @@ pub trait BinaryCom {
     ///
     fn host_write_reg8(&mut self, reg_num: u16, reg_val: u8) -> SerialComResult<()> {
         let command = 2u8;
-        let data: [u8; 3] = [
-            u8::try_from(reg_num >> 8 & 0xFF)?,
-            u8::try_from(reg_num & 0xFF)?,
-            reg_val,
-        ];
+        let mut data: [u8; 3] = [0; 3];
+        packers::host_write_reg8_pack(reg_num, reg_val, &mut data)?;
         self.send_message(&command, &data)?;
         Ok(())
     }
@@ -63,95 +60,8 @@ pub trait BinaryCom {
     /// Meant to be used on host to write a device register
     fn host_write_reg32(&mut self, reg_num: u16, reg_val: u32) -> SerialComResult<()> {
         let command = 2u8;
-        let data: [u8; 6] = [
-            u8::try_from(reg_num >> 8 & 0xFF)?,
-            u8::try_from(reg_num & 0xFF)?,
-            u8::try_from(reg_val >> (8 * 3) & 0xFF)?,
-            u8::try_from(reg_val >> (8 * 2) & 0xFF)?,
-            u8::try_from(reg_val >> (8 * 1) & 0xFF)?,
-            u8::try_from(reg_val >> (8 * 0) & 0xFF)?,
-        ];
-        self.send_message(&command, &data)?;
-        Ok(())
-    }
-
-    /// Unpack register read message
-    ///
-    /// Returns result holding register number
-    fn dev_read_reg_unpack(&self, data: &[u8]) -> SerialComResult<u16> {
-        if data.len() < 2 {
-            return Err(SerialComError::SliceTooSmall);
-        }
-        let reg_num =
-            (u16::from(data[0]) << (8 * 1) & 0xFF) & (u16::from(data[1]) << (8 * 0) & 0xFF);
-        Ok(reg_num)
-    }
-
-    /// Unpack 8-bit register write message
-    ///
-    /// Returns result holding (register number, register value)
-    fn dev_write_reg8_unpack(&self, data: &[u8]) -> SerialComResult<(u16, u8)> {
-        if data.len() < 3 {
-            return Err(SerialComError::SliceTooSmall);
-        }
-        let reg_num =
-            (u16::from(data[0]) << (8 * 1) & 0xFF) & (u16::from(data[1]) << (8 * 0) & 0xFF);
-        let reg_val = data[2];
-        Ok((reg_num, reg_val))
-    }
-    /// Unpack 8-bit register write message
-    ///
-    /// Returns result holding (register number, register value)
-    fn dev_write_reg32_unpack(&self, data: &[u8]) -> SerialComResult<(u16, u32)> {
-        if data.len() < 6 {
-            return Err(SerialComError::SliceTooSmall);
-        }
-        let reg_num: u16 =
-            (u16::from(data[0]) << (8 * 1) & 0xFF) & (u16::from(data[1]) << (8 * 0) & 0xFF);
-        let reg_val: u32 = (u32::from(data[2]) << (8 * 3) & 0xFF)
-            & (u32::from(data[3]) << (8 * 2) & 0xFF)
-            & (u32::from(data[4]) << (8 * 1) & 0xFF)
-            & (u32::from(data[5]) << (8 * 0) & 0xFF);
-        Ok((reg_num, reg_val))
-    }
-
-    /// Respond to 8-bit register read message
-    ///
-    fn dev_read_reg8_respond(&mut self, reg_num: u16, reg_val: u8) -> SerialComResult<()> {
-        let command = 1u8;
-        let data: [u8; 3] = [
-            u8::try_from(reg_num >> 8 & 0xFF)?,
-            u8::try_from(reg_num & 0xFF)?,
-            reg_val,
-        ];
-        self.send_message(&command, &data)?;
-        Ok(())
-    }
-
-    /// Respond to 32-bit register read message
-    ///
-    fn dev_read_reg32_respond(&mut self, reg_num: u16, reg_val: u32) -> SerialComResult<()> {
-        let command = 1u8;
-        let data: [u8; 6] = [
-            u8::try_from(reg_num >> 8 & 0xFF)?,
-            u8::try_from(reg_num & 0xFF)?,
-            u8::try_from(reg_val >> (8 * 3) & 0xFF)?,
-            u8::try_from(reg_val >> (8 * 2) & 0xFF)?,
-            u8::try_from(reg_val >> (8 * 1) & 0xFF)?,
-            u8::try_from(reg_val >> (8 * 0) & 0xFF)?,
-        ];
-        self.send_message(&command, &data)?;
-        Ok(())
-    }
-
-    /// Respond to 8-bit register write message
-    ///
-    fn dev_write_reg_respond(&mut self, reg_num: u16) -> SerialComResult<()> {
-        let command = 2u8;
-        let data: [u8; 2] = [
-            u8::try_from(reg_num >> 8 & 0xFF)?,
-            u8::try_from(reg_num & 0xFF)?,
-        ];
+        let mut data: [u8; 6] = [0; 6];
+        packers::host_write_reg32_pack(reg_num, reg_val, &mut data)?;
         self.send_message(&command, &data)?;
         Ok(())
     }

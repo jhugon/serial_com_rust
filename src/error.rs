@@ -1,4 +1,5 @@
 use std::num::TryFromIntError;
+use std::sync::mpsc;
 
 // See https://doc.rust-lang.org/stable/rust-by-example/error/multiple_error_types/wrap_error.html
 pub type SerialComResult<T> = std::result::Result<T, SerialComError>;
@@ -13,6 +14,9 @@ pub enum SerialComError {
     SliceTooBig,
     CRCMismatch,
     TryFromInt(TryFromIntError),
+    MPSCSendErrorRegNum(mpsc::SendError<u16>),
+    MPSCSendErrorRegNumVal(mpsc::SendError<(u16, u32)>),
+    MPSCSendErrorStream(mpsc::SendError<(u8, Vec<u8>)>),
 }
 
 impl std::fmt::Display for SerialComError {
@@ -37,6 +41,9 @@ impl std::fmt::Display for SerialComError {
             SerialComError::SliceTooBig => write!(f, "Data slice too big to fit into message"),
             SerialComError::CRCMismatch => write!(f, "Received and computed CRCs don't match"),
             SerialComError::TryFromInt(ref e) => e.fmt(f),
+            SerialComError::MPSCSendErrorRegNum(ref e) => e.fmt(f),
+            SerialComError::MPSCSendErrorRegNumVal(ref e) => e.fmt(f),
+            SerialComError::MPSCSendErrorStream(ref e) => e.fmt(f),
         }
     }
 }
@@ -52,6 +59,9 @@ impl std::error::Error for SerialComError {
             SerialComError::SliceTooBig => None,
             SerialComError::CRCMismatch => None,
             SerialComError::TryFromInt(ref e) => Some(e),
+            SerialComError::MPSCSendErrorRegNum(ref e) => Some(e),
+            SerialComError::MPSCSendErrorRegNumVal(ref e) => Some(e),
+            SerialComError::MPSCSendErrorStream(ref e) => Some(e),
         }
     }
 }
@@ -59,5 +69,23 @@ impl std::error::Error for SerialComError {
 impl From<TryFromIntError> for SerialComError {
     fn from(err: TryFromIntError) -> SerialComError {
         SerialComError::TryFromInt(err)
+    }
+}
+
+impl From<mpsc::SendError<(u16, u32)>> for SerialComError {
+    fn from(err: mpsc::SendError<(u16, u32)>) -> SerialComError {
+        SerialComError::MPSCSendErrorRegNumVal(err)
+    }
+}
+
+impl From<mpsc::SendError<u16>> for SerialComError {
+    fn from(err: mpsc::SendError<u16>) -> SerialComError {
+        SerialComError::MPSCSendErrorRegNum(err)
+    }
+}
+
+impl From<mpsc::SendError<(u8, Vec<u8>)>> for SerialComError {
+    fn from(err: mpsc::SendError<(u8, Vec<u8>)>) -> SerialComError {
+        SerialComError::MPSCSendErrorStream(err)
     }
 }
