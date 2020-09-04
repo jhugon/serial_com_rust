@@ -1,3 +1,4 @@
+pub mod app;
 pub mod hostreceiver;
 pub mod packers;
 
