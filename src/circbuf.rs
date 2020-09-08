@@ -1,8 +1,10 @@
-use rand::prelude::*;
-use std::convert::TryFrom;
-
 use crate::error::SerialComError;
 use crate::error::SerialComResult;
+
+use rand::prelude::*;
+use std::convert::TryFrom;
+use std::io::Read;
+use std::io::Write;
 
 extern crate arraydeque;
 
@@ -29,6 +31,12 @@ pub trait CircBufExt {
     /// Will return Ok(new length) on success or Err(QueueIndexingError) if not enough elements in
     /// buffer to remove n.
     fn remove_front_n(&mut self, n: &usize) -> SerialComResult<usize>;
+    //    fn write_to_file<T>(&mut self, outfile: T) -> SerialComResult<()>
+    //    where
+    //        T: Write;
+    //    fn read_from_file<T>(&mut self, infile: T) -> SerialComResult<()>
+    //    where
+    //        T: Read;
 }
 
 impl CircBufExt for arraydeque::ArrayDeque<[u8; 8], arraydeque::Wrapping> {
@@ -81,6 +89,39 @@ impl CircBufExt for arraydeque::ArrayDeque<[u8; 8], arraydeque::Wrapping> {
         }
         Ok(self.len())
     }
+    //    fn write_to_file<T>(&mut self, outfile: T) -> SerialComResult<()>
+    //    where
+    //        T: Write,
+    //    {
+    //        let slices_tuple = self.as_slices();
+    //        let slices = [slices_tuple.0, slices_tuple.1];
+    //        for slice in slices.iter() {
+    //            loop {
+    //                match outfile.write_all(slice) {
+    //                    Ok(_) => break,
+    //                    Err(std::io::ErrorKind::Interrupted) => {}
+    //                    Err(write_error) => {
+    //                        return Err(SerialComError::FileWrite(write_error));
+    //                    }
+    //                }
+    //            }
+    //        }
+    //        Ok(())
+    //    }
+    //    fn read_from_file<T>(&mut self, infile: T) -> SerialComResult<()>
+    //    where
+    //        T: Read,
+    //    {
+    //        let mut buf: Vec<u8> = Vec::with_capacity(4);
+    //        match infile.read(buf) {
+    //            Ok(nread) => {
+    //                self.extend_back(buf.iter());
+    //                Ok(())
+    //            }
+    //            Err(std::io::ErrorKind::Interrupted) => Ok(()),
+    //            Err(read_error) => SerialComError::FileRead(read_error),
+    //        }
+    //    }
 }
 
 impl CircBufExt for arraydeque::ArrayDeque<[u8; 16], arraydeque::Wrapping> {

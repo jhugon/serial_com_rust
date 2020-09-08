@@ -4,6 +4,8 @@ use crate::binarycom::BinaryCom;
 use crate::error::SerialComResult;
 
 use std::convert::TryFrom;
+use std::io::Read;
+use std::io::Write;
 use std::sync::mpsc;
 use std::thread;
 use std::time::Duration;
@@ -13,34 +15,55 @@ pub enum RegisterBitWidth {
     ThirtyTwo,
 }
 
-pub struct BinaryComApp {
+pub struct BinaryComApp<T: 'static + Write> {
     pub stream_thread_handle: thread::JoinHandle<()>,
+    serial_outfile: T,
     hostreceiver: HostReceiver16,
     outbuf: arraydeque::ArrayDeque<[u8; 16], arraydeque::Wrapping>,
     regbitwidth: RegisterBitWidth,
 }
 
-impl BinaryComApp {
-    pub fn new(
-        register_bit_width: RegisterBitWidth, /*, stream_handler: Fn(&mut mpsc::Receiver<(u8, Vec<u8>)>)*/
-    ) -> BinaryComApp {
-        let (hr, rx_stream) = HostReceiver16::new();
+impl<T: 'static + Write> BinaryComApp<T> {
+    pub fn new<U, V>(
+        register_bit_width: RegisterBitWidth,
+        mut serial_infile: U,
+        mut serial_outfile: T,
+        mut stream_outfile: V,
+    ) -> BinaryComApp<T>
+    where
+        U: 'static + Read + Send,
+        V: 'static + Write + Send,
+    {
+        let (hr, rx_stream) = HostReceiver16::new(serial_infile);
         let stream_thread = thread::spawn(move || loop {
             match rx_stream.recv() {
                 Ok((command, data_vec)) => match packers::unpack_stream(command, data_vec) {
-                    Ok(data) => println!("The data is: {:?}", data),
+                    Ok(data) => {
+                        for datum in data {
+                            if let Err(write_err) = write!(stream_outfile, "{},", datum) {
+                                eprintln!(
+                                    "Error while writing stream data to the file: {}",
+                                    write_err
+                                );
+                            }
+                        }
+                        if let Err(write_err) = write!(stream_outfile, "\n") {
+                            eprintln!("Error while writing stream data to the file: {}", write_err);
+                        }
+                    }
                     Err(unpack_err) => {
-                        println!("Error while unpacking stream data: {}", unpack_err)
+                        eprintln!("Error while unpacking stream data: {}", unpack_err)
                     }
                 },
                 Err(mpsc::RecvError) => {
-                    println!("rx_stream disconnected, closing stream thread");
+                    eprintln!("rx_stream disconnected, closing stream thread");
                     return;
                 }
             }
         });
         BinaryComApp {
             stream_thread_handle: stream_thread,
+            serial_outfile: serial_outfile,
             hostreceiver: hr,
             outbuf: arraydeque::ArrayDeque::new(),
             regbitwidth: register_bit_width,
@@ -53,6 +76,7 @@ impl BinaryComApp {
                 .host_write_reg8(reg_num, u8::try_from(reg_val)?)?,
             RegisterBitWidth::ThirtyTwo => self.outbuf.host_write_reg32(reg_num, reg_val)?,
         }
+        self.outbuf.write_to_serial(self.serial_outfile)?;
         loop {
             match self
                 .hostreceiver
@@ -75,6 +99,7 @@ impl BinaryComApp {
     }
     pub fn read_reg(&mut self, reg_num: u16) -> SerialComResult<u32> {
         self.outbuf.host_read_reg(reg_num)?;
+        self.outbuf.write_to_serial(self.serial_outfile)?;
         loop {
             match self
                 .hostreceiver

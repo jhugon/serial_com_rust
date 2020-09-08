@@ -2,6 +2,7 @@ use crate::binarycom::packers;
 use crate::binarycom::BinaryCom;
 use crate::error::SerialComResult;
 
+use std::io::Read;
 use std::sync::mpsc;
 use std::thread;
 
@@ -13,7 +14,10 @@ pub struct HostReceiver16 {
 
 impl HostReceiver16 {
     /// returns both a HostReceiver16 and rx_stream: the receiver for streaming messages
-    pub fn new() -> (HostReceiver16, mpsc::Receiver<(u8, Vec<u8>)>) {
+    pub fn new<T>(mut serial_infile: T) -> (HostReceiver16, mpsc::Receiver<(u8, Vec<u8>)>)
+    where
+        T: 'static + Read + Send,
+    {
         let (mut tx_reg_read, tmp_rx_reg_read) = mpsc::channel();
         let (mut tx_reg_write, tmp_rx_reg_write) = mpsc::channel();
         let (mut tx_stream, rx_stream) = mpsc::channel();
@@ -23,6 +27,10 @@ impl HostReceiver16 {
             let mut command: u8 = 0;
             let mut data: [u8; 11] = [0; 11];
             loop {
+                if let Err(read_serial_err) = inbuf.read_from_serial(serial_infile) {
+                    eprintln!("Error while reading from serial: {}", read_serial_err);
+                    return;
+                }
                 match inbuf.receive_message(&mut command, &mut data) {
                     Ok(data_len) => {
                         if let Err(route_error) = message_router(
@@ -32,14 +40,14 @@ impl HostReceiver16 {
                             &mut tx_reg_write,
                             &mut tx_stream,
                         ) {
-                            println!(
+                            eprintln!(
                                 "Error while routing and queuing message from device to host: {}",
                                 route_error
                             );
                         }
                     }
                     Err(recv_error) => {
-                        println!("Error while receiving dev -> host message: {}", recv_error)
+                        eprintln!("Error while receiving dev -> host message: {}", recv_error)
                     }
                 }
             }
@@ -64,7 +72,7 @@ fn message_router(
 ) -> SerialComResult<()> {
     match command {
         0u8 => {
-            println!("Error: unexpected command received: 0x{:02X}", command);
+            eprintln!("Error: unexpected command received: 0x{:02X}", command);
         }
         1u8 => {
             // read register
@@ -77,7 +85,7 @@ fn message_router(
             tx_reg_write.send(reg_num)?;
         }
         0x3u8..=0x7Fu8 => {
-            println!("Error: unexpected command received: 0x{:02X}", command);
+            eprintln!("Error: unexpected command received: 0x{:02X}", command);
         }
         0x80u8..=0xFFu8 => {
             tx_stream.send((command, data.to_vec()))?;
